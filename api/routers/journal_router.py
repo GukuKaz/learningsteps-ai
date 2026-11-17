@@ -4,7 +4,8 @@ from fastapi import APIRouter, HTTPException, Request, Depends
 from repositories.postgres_repository import PostgresDB
 from services.entry_service import EntryService
 from models.entry import Entry, EntryCreate
-
+from starlette.concurrency import run_in_threadpool
+from services.ai_summary_service import generate_summary
 
 router = APIRouter()
 
@@ -47,6 +48,61 @@ async def get_all_entries(entry_service: EntryService = Depends(get_entry_servic
     """Get all journal entries."""
     result = await entry_service.get_all_entries()
     return {"entries": result, "count": len(result)}
+
+@router.post("/entries/summary")
+async def generate_entries_summary(
+    entry_service: EntryService = Depends(get_entry_service)
+):
+    """Generate an AI summary of all journal entries."""
+
+    try:
+        entries = await entry_service.get_all_entries()
+
+        if not entries:
+            raise HTTPException(
+                status_code=404,
+                detail="No journal entries available."
+            )
+
+        # Prepare journal notes for the AI service
+        notes = []
+
+        for index, entry in enumerate(entries, start=1):
+            notes.append(
+                f"""
+Learning Entry {index}
+Work: {entry.get('work', '')}
+Struggle: {entry.get('struggle', '')}
+Intention: {entry.get('intention', '')}
+"""
+            )
+
+        notes_text = "\n".join(notes)
+
+        # Run the synchronous OpenAI client outside the async event loop
+        summary = await run_in_threadpool(
+            generate_summary,
+            notes_text
+        )
+
+        return {
+            "detail": "AI summary generated successfully",
+            "entries_analyzed": len(entries),
+            "summary": summary
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception:
+        logging.exception("AI summary generation failed")
+
+        raise HTTPException(
+            status_code=502,
+            detail="AI summary generation failed. Check server logs."
+        )
+
+
 
 @router.get("/entries/{entry_id}")
 async def get_entry(request: Request, entry_id: str, entry_service: EntryService = Depends(get_entry_service)):

@@ -5,3 +5,5 @@ aiohttp
 sqlalchemy
 psycopg2-binary
 asyncpg
+openai>=3.52.0
+azure-identity>=1.27.0
